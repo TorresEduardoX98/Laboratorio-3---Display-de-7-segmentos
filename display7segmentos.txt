@@ -1,0 +1,243 @@
+
+
+
+;===============================================================================
+;
+; TODO Step #2 - Configuration Word Setup
+;
+; The 'CONFIG' directive is used to embed the configuration word within the
+; .asm file. MPLAB X requires users to embed their configuration words
+; into source code.  See the device datasheet for additional information
+; on configuration word settings.  Device configuration bits descriptions
+; are in C:\Program Files\Microchip\MPLABX\mpasmx\P<device_name>.inc
+; (may change depending on your MPLAB X installation directory).
+;
+; MPLAB X has a feature which generates configuration bits source code.  Go to
+; Window > PIC Memory Views > Configuration Bits.  Configure each field as
+; needed and select 'Generate Source Code to Output'.  The resulting code which
+; appears in the 'Output Window' > 'Config Bits Source' tab may be copied
+; below.
+;
+;===============================================================================
+
+#include "p16f887.inc"
+; CONFIG1
+; __config 0xE0F2
+ __CONFIG _CONFIG1, _FOSC_HS & _WDTE_OFF & _PWRTE_OFF & _MCLRE_ON & _CP_OFF & _CPD_OFF & _BOREN_OFF & _IESO_OFF & _FCMEN_OFF & _LVP_OFF
+; CONFIG2
+; __config 0xFFFF
+ __CONFIG _CONFIG2, _BOR4V_BOR40V & _WRT_OFF
+
+
+;===============================================================================
+;Definicion de varialbes
+;===============================================================================
+
+    GPR_VAR	   UDATA
+    SUMA	    RES 1
+		   
+;===============================================================================
+; Reset Vector
+;===============================================================================
+
+RES_VECT  CODE    0x0000            ; processor reset vector
+    GOTO    SETUP                   ; go to beginning of program
+
+;===============================================================================
+; MAIN PROGRAM
+;===============================================================================
+
+MAIN_PROG CODE                      ; let linker place main program
+
+
+;======================
+TMR_0 MACRO
+    LOOP_TIMER1:
+	BTFSS INTCON, T0IF	    ; VERIFICA SI LA BANDERA T0IF ESTA ENCENDIDA
+	GOTO LOOP_TIMER1	    ; INICIA EL CICLO NUEVAMENTE
+    
+	BCF INTCON, T0IF	    ; APAGA LA BANDERA DE INTERRUPCION
+	MOVLW .200		    ; TIEMPO DE INTERRUPCION 
+	MOVWF TMR0		    ; CARGA DE VALOR AL TMR0
+	
+    ENDM
+;===================
+ TMR_1 MACRO
+    LOOP_TIMER2:
+	BTFSS INTCON, T0IF	    ; VERIFICA SI LA BANDERA T0IF ESTA ENCENDIDA
+	GOTO LOOP_TIMER2	    ; INICIA EL CICLO NUEVAMENTE
+    
+	BCF INTCON, T0IF	    ; APAGA LA BANDERA DE INTERRUPCION
+	MOVLW .200		    ; TIEMPO DE INTERRUPCION
+	MOVWF TMR0		    ; CARGA DE VALOR AL TMR0
+	
+    ENDM
+ 
+;===============================================================================
+; INICIALIZACION
+;===============================================================================
+ 
+SETUP
+    BSF STATUS, RP0
+    BCF STATUS, RP1	; ESTABLEZCO BANCO 1
+    
+    MOVLW b'00000000'	
+    MOVWF TRISB		; SALIDA PARA CONTADOR DE BTNA
+    
+    MOVLW b'00000000'
+    MOVWF TRISC		; SALIDA PARA CONTADOR DE BTNB
+    
+    MOVLW b'111100'
+    MOVWF TRISA		; ENTRADA DE BOTONES Y SALIDAS DE DISPLAYS 
+    
+    MOVLW b'00000000'
+    MOVWF TRISD		; SALIDA PARA LA SUMA DE LOS 2 CONTADORES
+    
+    BSF STATUS, RP0
+    BSF STATUS, RP1	; BANCO 3
+    
+    CLRF ANSEL
+    CLRF ANSELH		; ESTABLEZCO QUE TODAS LAS ENTRADAS SON DIGITALES
+
+;===============================================================================
+; TMR0    
+;===============================================================================
+    BSF STATUS, RP0
+    BCF STATUS, RP1	    ; ESTABLEZCO BANCO 1
+    
+    BCF OPTION_REG, T0CS    ; RELOJ INTERNO PARA TIMER
+    BCF OPTION_REG, PSA	    ; ASIGNA PRESCALER AL TMR0
+    
+    BSF OPTION_REG, PS0
+    BSF OPTION_REG, PS1
+    BSF OPTION_REG, PS2	    ;SELECCIONA 1:256 PRESCALER
+    
+    BCF STATUS, RP0
+    BCF STATUS, RP1	    ; BANCO 0
+    
+    BCF INTCON, T0IF	    ; LIMPIA BANDERA DE INTERRUPCION 
+    
+    MOVLW .200		    ; TIEMPO PARA REALIZAR UNA INTERRUPCION 
+    MOVWF TMR0		    ; CARGA DE TIMEMPO A TMR0
+    
+;===============================================================================    
+    
+    MOVLW b'00000001'
+    MOVWF PORTB		    ; INICIO CONTADOR DE TIMER EN 1
+    
+    MOVLW b'00000001'	    ; INICIO CONTADOR DE TIMER EN 1
+    MOVWF PORTC
+    
+;===============================================================================
+; CICLO PRINCIPAL    
+;===============================================================================
+LOOP:
+    ;===========================================================================
+    ;PARTE 1:
+    ;	SI UN BOTON ES PRECIONADO; SE EJECUTA LA SUBRUTINA DE ANTIREBOTE 
+    ;	RESPECTIVA (LO MISMO PARA TODOS, POR ESO SOLO COMENTO EN GENERAL)
+    ;===========================================================================
+    
+    BTFSC PORTA, RA2
+    GOTO AR_BTN1A
+    
+    BTFSC PORTA, RA3
+    GOTO AR_BTN2A
+    
+    BTFSC PORTA, RA4
+    GOTO AR_BTN1B
+    
+    BTFSC PORTA, RA5
+    GOTO AR_BTN2B 
+    
+	;=======================================================================
+	;PARTE 2
+	;=======================================================================
+	
+	MOVF PORTB, W	    ; VALOR DE PORTB --> W
+	ADDWF PORTC, W	    ; VALOR DE SUMA ENTRE PORTB Y PORTC --> W
+	MOVWF SUMA	    ; GUARDO VALOR EN UN NUEVO REGISTRO
+	
+	MOVLW b'1111'
+	ANDWF SUMA, W	    ; OBTENGO PRIMER NIBBLE
+	CALL TABLA	    ; BUSCO SU REPRECENTACION EN EL DISPLAY
+	MOVWF PORTD	    ; LO MUESTRO
+	
+	BSF PORTA, RA0	    ; PRENDO PRIMER SALIDA PARA DISPLAY
+	BCF PORTA, RA1	    ; APAGO SEGUNDA SALIDA PARA DISPLAY
+	
+	TMR_0		    ; PAUSA PARA HACER EL CAMBIO
+	
+	SWAPF SUMA, F	    ; CAMBIO LOS NIBBLES 
+	MOVLW b'1111'	    
+	ANDWF SUMA, W	    ; OBTENGO EL SEGUNDO NIBBLE
+	CALL TABLA	    ; BUSCO SU REPRESENTACION EN EL DISPLAY
+	MOVWF PORTD	    ; LO MUESTRO
+	
+	BCF PORTA, RA0	    ; APAGO PRIMER SALIDA PARA DISPLAY
+	BSF PORTA, RA1	    ; PRENDO SEGUNDA SALIDA PARA DISPLAY
+	
+	SWAPF SUMA, F	    ; REACOMODO LOS NIBBLES 
+	
+	TMR_1		    ; PAUSA PARA HACER EL CAMBIO
+	
+    GOTO LOOP
+    
+;===============================================================================
+;ANTIREBOTE PARA LOS BOTNONES 
+;   MIENTRAS EL BOTON SIGA PRECIONADO, SE ESTARA EJECUTANDO EL CICLO DE
+;   ANTIRREBOTE, CUENDO SE DEJA DE PRESIONAR SE HACE EL INCREMENTO O DECREMENTO
+;   DEL PUERTO RESPECTIVO. (LO MISMO PARA TODOS)
+;===============================================================================
+AR_BTN1A:
+    BTFSC PORTA, RA2
+    GOTO AR_BTN1A
+    
+    INCF PORTB
+    GOTO LOOP
+    
+ AR_BTN2A:
+    BTFSC PORTA, RA3
+    GOTO AR_BTN2A
+    
+    DECF PORTB
+    GOTO LOOP
+    
+AR_BTN1B:
+    BTFSC PORTA, RA4
+    GOTO AR_BTN1B
+    
+    INCF PORTC
+    GOTO LOOP
+    
+AR_BTN2B:
+    BTFSC PORTA, RA5
+    GOTO AR_BTN2B
+    
+    DECF PORTC
+    GOTO LOOP
+    
+;===============================================================================
+; TABLA CON LA REPRESENTACION DE CADA NUMERO EN EL DISPLAY
+;   SE ELIGE LA CORRECTA POR MEDIO DE DIRECCIONAMIENTO INDIRECTO
+;===============================================================================
+ TABLA:
+    ADDWF PCL, F
+    RETLW b'00111111'	    ;0
+    RETLW b'00000110'	    ;1
+    RETLW b'01011011'	    ;2
+    RETLW b'01001111'	    ;3
+    RETLW b'01100110'	    ;4
+    RETLW b'01101101'	    ;5
+    RETLW b'01111101'	    ;6
+    RETLW b'00000111'	    ;7
+    RETLW b'01111111'	    ;8
+    RETLW b'01100111'	    ;9
+    RETLW b'01110111'	    ;A
+    RETLW b'01111100'	    ;B
+    RETLW b'00111001'	    ;C
+    RETLW b'01011110'	    ;D
+    RETLW b'01110001'	    ;E
+    RETLW b'01110001'	    ;F
+    
+    END
